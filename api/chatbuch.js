@@ -1,5 +1,17 @@
+// api/chatbuch.js
+
 export default async function handler(req, res) {
-  // Nur POST erlauben
+  // CORS-Header setzen, damit Aufrufe von deiner anderen Webseite erlaubt sind
+  res.setHeader("Access-Control-Allow-Origin", "*"); // oder hier später gezielt deine Domain eintragen
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  // Preflight-Request für CORS beantworten
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  // Nur POST für echte Anfragen erlauben
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -17,7 +29,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "API key not configured" });
     }
 
-    // Aufruf der OpenAI-API per fetch (ohne extra Bibliothek)
+    // Aufruf der OpenAI-API per fetch
     const apiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -25,7 +37,7 @@ export default async function handler(req, res) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4.1-mini", // kleines, günstiges Modell
+        model: "gpt-4.1-mini", // günstiges Modell
         messages: [
           {
             role: "system",
