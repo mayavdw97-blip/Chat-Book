@@ -1,24 +1,16 @@
 // api/chatbuch.js
 
-import OpenAI from "openai";
-
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 export default async function handler(req, res) {
-  // ----- CORS-HEADERS FÜR DEINE WEBSITE -----
-  // Erlaubt Anfragen von allen Domains. Wenn du willst,
-  // kannst du "*" später durch deine Domain ersetzen.
+  // ----- CORS: Erlaubt Aufrufe von deiner Website -----
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  // Preflight-Request vom Browser (OPTIONS) direkt beantworten
+  // Preflight-Request vom Browser
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
-  // ------------------------------------------
+  // ---------------------------------------------------
 
   // Nur POST-Anfragen erlauben
   if (req.method !== "POST") {
@@ -26,21 +18,35 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { message } = req.body || {};
+    const apiKey = process.env.OPENAI_API_KEY;
 
+    if (!apiKey) {
+      return res.status(500).json({
+        reply:
+          "Auf Serverseite fehlt der OPENAI_API_KEY. Bitte im Vercel-Dashboard als Environment Variable setzen.",
+      });
+    }
+
+    const { message } = req.body || {};
     if (!message || typeof message !== "string") {
       return res
         .status(400)
         .json({ reply: "Keine gültige Frage übermittelt." });
     }
 
-    // Aufruf an OpenAI (Responses API)
-    const response = await client.responses.create({
-      model: "gpt-4.1-mini",
-      input: [
-        {
-          role: "system",
-          content: `Du bist der freundliche, leicht magische KI-Assistent
+    // Anfrage an OpenAI Responses API
+    const openaiRes = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        input: [
+          {
+            role: "system",
+            content: `Du bist der freundliche, leicht magische KI-Assistent
 des Escape-Room-Unternehmens "House of Keys".
 Du beantwortest alle Fragen zu House of Keys, den Escape Rooms, Standorten,
 Öffnungszeiten, Preisen, Kindergeburtstagen, Firmenevents, Zusatzpaketen,
@@ -322,20 +328,32 @@ Philosophie: Upcycling, nachhaltig, eigengebaut, keine Jumpscares, Fokus auf Sto
 Standorte: Jülich (Dienstag–Sonntag), Heinsberg (Donnerstag–Sonntag). Gesamtkapazität 2–44 Personen, große Räume in Jülich 4–16 Personen, Undercover 4–14 Personen (ab 10 Personen 23 € p. P.), Generator und Giftwolke 2–14 Personen, alle anderen Räume 2–6 (optional 8) Personen.
 Preise: 2 Personen 35 € p. P., 3 Personen 30 € p. P., ab 4 Personen 25 € p. P., Undercover ab 10 Personen 23 € p. P. Kinder ab 8 Jahren können mit Eltern spielen, Begleitpersonen sind gratis.
 Spielzeiten: Räume haben feste Startzeiten (je nach Raum z. B. 11:15/11:30/11:45 in Jülich bzw. 15:30/15:45/16:00 in Heinsberg) und laufen im 2-Stunden-Takt bis zu letzten Startzeiten gegen Abend. Exakte Verfügbarkeit immer im Online-Buchungskalender prüfen.`,
-        },
-        {
-          role: "user",
-          content: message,
-        },
-      ],
+          },
+          {
+            role: "user",
+            content: message,
+          },
+        ],
+      }),
     });
 
-    // Antworttext aus dem Responses-Objekt ziehen
+    const data = await openaiRes.json();
+
+    if (!openaiRes.ok) {
+      const apiMsg =
+        data?.error?.message || JSON.stringify(data) || "Unbekannter KI-Fehler.";
+      return res.status(500).json({
+        reply:
+          "Die Seiten flackern – die KI hat leider einen Fehler zurückgegeben: " +
+          apiMsg,
+      });
+    }
+
     let replyText =
       "Die Seiten bleiben heute stumm – bitte versuch es gleich noch einmal.";
 
     try {
-      const firstOutput = response.output?.[0];
+      const firstOutput = data.output?.[0];
       const firstContent = firstOutput?.content?.find(
         (c) => c.type === "output_text"
       );
@@ -349,14 +367,8 @@ Spielzeiten: Räume haben feste Startzeiten (je nach Raum z. B. 11:15/11:30/11:4
     return res.status(200).json({ reply: replyText });
   } catch (error) {
     console.error("Fehler in /api/chatbuch:", error);
-
     let msg = "Die KI hat leider einen technischen Fehler gemeldet.";
-    if (error?.message) {
-      msg = error.message;
-    } else if (error?.response?.data) {
-      msg = JSON.stringify(error.response.data);
-    }
-
+    if (error?.message) msg = error.message;
     return res.status(500).json({
       reply:
         "Die Seiten flackern – die KI hat leider einen Fehler zurückgegeben: " +
